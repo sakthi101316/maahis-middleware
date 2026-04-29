@@ -171,9 +171,16 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 
 <!-- HEADER -->
 <div class="header">
-  <div>
-    <div class="logo">MAAHIS</div>
-    <div class="logo-sub">AI Command Center</div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div>
+      <div class="logo" id="header-logo">MAAHIS</div>
+      <div class="logo-sub" id="header-sub">AI Command Center</div>
+    </div>
+    <!-- BOUTIQUE SWITCHER -->
+    <div style="display:flex;gap:6px;margin-left:8px;">
+      <button id="btn-maahis" onclick="switchBoutique('maahis')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--pink);background:var(--pink);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">🌸 MAAHIS</button>
+      <button id="btn-neethu" onclick="switchBoutique('neethu')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:700;cursor:pointer;">✨ NEETU'S</button>
+    </div>
   </div>
   <div class="header-right">
     <div class="sync-badge"><div class="sync-dot"></div><span id="syncStatus">Live</span></div>
@@ -491,7 +498,7 @@ function onStatusChange(orderNumber) {
 async function fetchOrders() {
   try {
     document.getElementById('syncStatus').textContent = 'Syncing...';
-    const res = await fetch('/api/all-orders');
+    const res = await fetch(`/api/all-orders?boutique=${activeBoutique}`);
     const data = await res.json();
     allOrders = data.orders || [];
 
@@ -824,7 +831,7 @@ const LEAD_STATUS_LABELS = { new:'🆕 New', followed_up:'📞 Followed Up', con
 
 async function loadLeads() {
   try {
-    const res  = await fetch('/api/leads');
+    const res  = await fetch(`/api/leads?boutique=${activeBoutique}`);
     const data = await res.json();
     const leads = data.leads || [];
 
@@ -863,6 +870,33 @@ async function loadLeads() {
 async function updateLead(id, status) {
   await fetch(`/api/leads/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
   loadLeads();
+}
+
+// ── BOUTIQUE SWITCHER ────────────────────────────────────────
+let activeBoutique = 'maahis';
+const BOUTIQUE_CONFIG = {
+  maahis: { name:'MAAHIS', sub:'AI Command Center', color:'#f472b6', emoji:'🌸' },
+  neethu: { name:"NEETU'S", sub:"Boutique Command Center", color:'#a78bfa', emoji:'✨' }
+};
+
+function switchBoutique(id) {
+  activeBoutique = id;
+  const cfg = BOUTIQUE_CONFIG[id];
+
+  document.getElementById('header-logo').textContent = cfg.emoji + ' ' + cfg.name;
+  document.getElementById('header-sub').textContent  = cfg.sub;
+
+  // Update button styles
+  document.getElementById('btn-maahis').style.background = id==='maahis' ? '#f472b6' : 'transparent';
+  document.getElementById('btn-maahis').style.color       = id==='maahis' ? '#fff' : 'var(--muted)';
+  document.getElementById('btn-maahis').style.borderColor = id==='maahis' ? '#f472b6' : 'var(--border)';
+  document.getElementById('btn-neethu').style.background  = id==='neethu' ? '#a78bfa' : 'transparent';
+  document.getElementById('btn-neethu').style.color        = id==='neethu' ? '#fff' : 'var(--muted)';
+  document.getElementById('btn-neethu').style.borderColor  = id==='neethu' ? '#a78bfa' : 'var(--border)';
+
+  fetchOrders();
+  loadLeads();
+  fetchChatLogs();
 }
 
 // ── AUTO REFRESH ──

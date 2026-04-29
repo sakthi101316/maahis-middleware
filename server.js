@@ -705,6 +705,7 @@ Thank you for choosing Maahis ✨
 
 // ── ALL ORDERS (Emergent + Local merged) ─────────────────────
 app.get('/api/all-orders', async (req, res) => {
+  const boutiqueFilter = req.query.boutique || null;
   try {
     const emergentRaw = await getAllActiveOrders();
     const emergentOrders = (emergentRaw || []).map(o => {
@@ -735,9 +736,12 @@ app.get('/api/all-orders', async (req, res) => {
     // Sort newest first
     merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+    // Filter by boutique if requested
+    const filtered = boutiqueFilter ? merged.filter(o => (o.boutique_id || 'maahis') === boutiqueFilter) : merged;
+
     res.json({
-      orders: merged,
-      total: merged.length,
+      orders: filtered,
+      total: filtered.length,
       from_emergent: emergentOrders.length,
       from_local: merged.length - emergentOrders.length,
       timestamp: new Date().toISOString()
@@ -801,10 +805,12 @@ app.get('/api/followup-check', async (req, res) => {
 // ── LEADS API ────────────────────────────────────────────────
 app.get('/api/leads', async (req, res) => {
   if (!pgPool) return res.json({ leads: [], total: 0 });
+  const boutique = req.query.boutique || null;
   try {
-    const result = await pgPool.query(
-      `SELECT * FROM leads ORDER BY timestamp DESC LIMIT 100`
-    );
+    const q = boutique
+      ? `SELECT * FROM leads WHERE boutique_id=$1 ORDER BY timestamp DESC LIMIT 100`
+      : `SELECT * FROM leads ORDER BY timestamp DESC LIMIT 100`;
+    const result = await pgPool.query(q, boutique ? [boutique] : []);
     res.json({ leads: result.rows, total: result.rows.length });
   } catch(e) {
     console.error('[PG] Leads fetch error:', e.message);
