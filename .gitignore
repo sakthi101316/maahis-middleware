@@ -1,0 +1,6 @@
+.env
+node_modules/
+*.json
+ngrok
+ngrok.zip
+cloudflared

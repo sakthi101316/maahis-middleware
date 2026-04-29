@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAAHIS · AI Command Center</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+/* ── RESET & BASE ── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg:       #0b0614;
+  --surface:  #12091f;
+  --card:     rgba(255,255,255,0.05);
+  --border:   rgba(255,255,255,0.09);
+  --pink:     #f472b6;
+  --purple:   #a78bfa;
+  --green:    #34d399;
+  --yellow:   #fbbf24;
+  --red:      #f87171;
+  --blue:     #60a5fa;
+  --text:     #f0e8f5;
+  --muted:    rgba(240,232,245,0.45);
+  --radius:   14px;
+}
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+/* ── HEADER ── */
+.header { background: rgba(18,9,31,0.95); border-bottom: 1px solid var(--border); padding: 0 24px; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(12px); }
+.logo { font-size: 22px; font-weight: 800; background: linear-gradient(135deg, var(--pink), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.logo-sub { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: -2px; }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.sync-badge { font-size: 11px; color: var(--green); background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2); padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 5px; }
+.sync-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+.time-badge { font-size: 12px; color: var(--muted); }
+
+/* ── TABS ── */
+.tabs { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; gap: 4px; overflow-x: auto; }
+.tab { padding: 14px 20px; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all .2s; display: flex; align-items: center; gap: 7px; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--pink); border-bottom-color: var(--pink); }
+
+/* ── MAIN ── */
+.main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+.panel { display: none; } .panel.active { display: block; }
+
+/* ── STAT CARDS ── */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.stat-value { font-size: 32px; font-weight: 800; line-height: 1; }
+.stat-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.stat-pink { color: var(--pink); } .stat-green { color: var(--green); } .stat-purple { color: var(--purple); } .stat-yellow { color: var(--yellow); } .stat-blue { color: var(--blue); }
+
+/* ── SECTION HEADER ── */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.section-title { font-size: 15px; font-weight: 700; }
+.section-sub { font-size: 12px; color: var(--muted); }
+.btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+.btn-pink { background: var(--pink); color: #fff; }
+.btn-pink:hover { background: #e879a8; }
+.btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,.2); }
+.btn-sm { padding: 5px 10px; font-size: 11px; border-radius: 6px; }
+.btn-green { background: rgba(52,211,153,0.15); color: var(--green); border: 1px solid rgba(52,211,153,0.3); }
+.btn-green:hover { background: rgba(52,211,153,0.25); }
+
+/* ── TABLE ── */
+.table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+th { padding: 12px 16px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+.empty-row td { text-align: center; color: var(--muted); padding: 40px; }
+
+/* ── STATUS BADGE ── */
+.status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.s-new       { background: rgba(96,165,250,.15);  color: var(--blue);   border: 1px solid rgba(96,165,250,.25); }
+.s-received  { background: rgba(52,211,153,.15);  color: var(--green);  border: 1px solid rgba(52,211,153,.25); }
+.s-cutting   { background: rgba(251,191,36,.15);  color: var(--yellow); border: 1px solid rgba(251,191,36,.25); }
+.s-stitching { background: rgba(167,139,250,.15); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+.s-embroidery{ background: rgba(244,114,182,.15); color: var(--pink);   border: 1px solid rgba(244,114,182,.25); }
+.s-trial     { background: rgba(244,114,182,.15); color: var(--pink);   border: 1px solid rgba(244,114,182,.25); }
+.s-finishing { background: rgba(167,139,250,.15); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+.s-ready     { background: rgba(52,211,153,.15);  color: var(--green);  border: 1px solid rgba(52,211,153,.25); }
+.s-delivered { background: rgba(52,211,153,.1);   color: var(--green);  border: 1px solid rgba(52,211,153,.2); }
+
+/* ── STATUS UPDATE DROPDOWN ── */
+.status-select { background: rgba(255,255,255,0.07); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 7px; font-size: 12px; cursor: pointer; outline: none; }
+.status-select:focus { border-color: var(--pink); }
+.update-btn { margin-left: 6px; background: var(--pink); color: #fff; border: none; padding: 5px 10px; border-radius: 7px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .2s; }
+.update-btn:hover { background: #e879a8; }
+.update-btn:disabled { background: rgba(255,255,255,0.1); color: var(--muted); cursor: not-allowed; }
+
+/* ── SEARCH ── */
+.search-bar { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 10px; font-size: 13px; outline: none; margin-bottom: 16px; }
+.search-bar:focus { border-color: rgba(244,114,182,0.4); }
+.search-bar::placeholder { color: var(--muted); }
+
+/* ── AGENT CARDS ── */
+.agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.agent-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.agent-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.agent-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+.agent-name { font-size: 15px; font-weight: 700; }
+.agent-role { font-size: 11px; color: var(--muted); }
+.agent-status { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 4px; }
+.dot-active { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+.dot-sleep  { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.agent-stat { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+/* ── MESSAGES TAB ── */
+.msg-form { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.form-input { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 10px; font-size: 13px; outline: none; font-family: inherit; }
+.form-input:focus { border-color: rgba(244,114,182,0.4); }
+.form-textarea { min-height: 100px; resize: vertical; }
+.template-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.template-chip { background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.2); color: var(--purple); padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all .2s; }
+.template-chip:hover { background: rgba(167,139,250,0.2); }
+
+/* ── GRID LAYOUT ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.chart-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.chart-title { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+
+/* ── TOAST NOTIFICATION ── */
+.toast { position: fixed; bottom: 24px; right: 24px; background: rgba(18,9,31,0.95); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; font-size: 13px; z-index: 1000; transform: translateY(80px); opacity: 0; transition: all .35s cubic-bezier(.34,1.56,.64,1); max-width: 340px; backdrop-filter: blur(12px); }
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast-icon { font-size: 18px; }
+.toast-text { flex: 1; }
+.toast-title { font-weight: 700; margin-bottom: 2px; }
+.toast-sub { font-size: 11px; color: var(--muted); }
+
+/* ── SOURCE TAG ── */
+.source-tag { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+.src-emergent { background: rgba(167,139,250,0.15); color: var(--purple); }
+.src-local { background: rgba(96,165,250,0.15); color: var(--blue); }
+
+/* ── LOADING ── */
+.loading { text-align: center; padding: 60px; color: var(--muted); }
+.spinner { width: 32px; height: 32px; border: 3px solid rgba(244,114,182,0.2); border-top-color: var(--pink); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── PHONE LINK ── */
+.phone-link { font-size: 12px; color: var(--muted); }
+.track-link { color: var(--purple); font-size: 11px; text-decoration: none; }
+.track-link:hover { text-decoration: underline; }
+
+/* ── PIPELINE ── */
+.pipeline { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0; padding: 32px; }
+.pipe-node { text-align: center; padding: 16px; }
+.pipe-icon { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 26px; margin: 0 auto 8px; border: 1px solid var(--border); background: var(--card); }
+.pipe-name { font-size: 12px; font-weight: 700; }
+.pipe-role { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.pipe-arrow { font-size: 20px; color: var(--pink); opacity: 0.5; margin: 0 4px; padding-top: 10px; }
+.event-log { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-top: 20px; max-height: 220px; overflow-y: auto; }
+.event-item { font-size: 12px; color: var(--muted); padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); display: flex; align-items: center; gap: 8px; }
+.event-item:last-child { border-bottom: none; }
+.event-time { font-size: 10px; color: rgba(255,255,255,0.2); min-width: 60px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <div class="logo">MAAHIS</div>
+    <div class="logo-sub">AI Command Center</div>
+  </div>
+  <div class="header-right">
+    <div class="sync-badge"><div class="sync-dot"></div><span id="syncStatus">Live</span></div>
+    <div class="time-badge" id="clockBadge"></div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" onclick="showTab('overview',this)">📊 Overview</div>
+  <div class="tab" onclick="showTab('orders',this)">🛍️ Orders</div>
+  <div class="tab" onclick="showTab('agents',this)">🤖 Agents</div>
+  <div class="tab" onclick="showTab('pipeline',this)">🔗 Pipeline</div>
+  <div class="tab" onclick="showTab('messages',this)">💬 Messages</div>
+  <div class="tab" onclick="showTab('analytics',this)">📈 Analytics</div>
+  <div class="tab" onclick="showTab('leads',this)">🌸 Leads</div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- ── OVERVIEW ── -->
+  <div id="panel-overview" class="panel active">
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value stat-pink" id="ov-total">—</div><div class="stat-sub">All active</div></div>
+      <div class="stat-card"><div class="stat-label">Revenue</div><div class="stat-value stat-green" id="ov-revenue">—</div><div class="stat-sub">Total value</div></div>
+      <div class="stat-card"><div class="stat-label">Ready for Pickup</div><div class="stat-value stat-yellow" id="ov-ready">—</div><div class="stat-sub">Awaiting collection</div></div>
+      <div class="stat-card"><div class="stat-label">In Progress</div><div class="stat-value stat-purple" id="ov-progress">—</div><div class="stat-sub">Being worked on</div></div>
+      <div class="stat-card"><div class="stat-label">From Emergent</div><div class="stat-value stat-blue" id="ov-emergent">—</div><div class="stat-sub">Live synced</div></div>
+    </div>
+
+    <div class="section-header">
+      <div><div class="section-title">Recent Orders</div><div class="section-sub">Latest 10 orders</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="fetchOrders()">↻ Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Order #</th><th>Customer</th><th>Item</th><th>Status</th><th>Amount</th><th>Source</th></tr></thead>
+        <tbody id="ov-table"><tr class="empty-row"><td colspan="6"><div class="spinner"></div><br>Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── ORDERS ── -->
+  <div id="panel-orders" class="panel">
+    <div class="section-header">
+      <div><div class="section-title">All Orders</div><div class="section-sub" id="orders-count">Loading from Emergent...</div></div>
+      <button class="btn btn-pink btn-sm" onclick="fetchOrders()">↻ Refresh</button>
+    </div>
+    <input class="search-bar" type="text" placeholder="🔍  Search by name, order number, phone..." id="searchInput" oninput="filterOrders()">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Order #</th><th>Customer</th><th>Phone</th><th>Item</th><th>Amount</th><th>Status</th><th>Update Status</th><th>Actions</th></tr></thead>
+        <tbody id="orders-table"><tr class="empty-row"><td colspan="8"><div class="spinner"></div><br>Fetching from Emergent...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── AGENTS ── -->
+  <div id="panel-agents" class="panel">
+    <div class="section-header">
+      <div><div class="section-title">AI Agent Pipeline</div><div class="section-sub">7 specialised agents working for MAAHIS</div></div>
+    </div>
+    <div class="agents-grid">
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(96,165,250,0.1)">💬</div>
+          <div><div class="agent-name">WhatsApp Gateway</div><div class="agent-role">Inbound message receiver</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+        </div>
+        <div class="agent-stat">Receives all customer WhatsApp messages and passes to Router AI</div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(244,114,182,0.1)">🧠</div>
+          <div><div class="agent-name">Router AI</div><div class="agent-role">Intent classifier</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+        </div>
+        <div class="agent-stat">Classifies every message and routes to the right specialist agent (llama-3.1-8b)</div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(167,139,250,0.1)">📦</div>
+          <div><div class="agent-name">Data Agent</div><div class="agent-role">Emergent live data fetcher</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+        </div>
+        <div class="agent-stat">Fetches real-time order data from Emergent API for customer queries</div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(251,191,36,0.1)">⚡</div>
+          <div><div class="agent-name">Action Agent</div><div class="agent-role">Order executor</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+        </div>
+        <div class="agent-stat">Handles order confirmations, reschedules, and status updates</div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(248,113,113,0.1)">🚨</div>
+          <div><div class="agent-name">Alert Agent</div><div class="agent-role">Complaint handler</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+        </div>
+        <div class="agent-stat">Monitors complaints and urgent issues proactively, notifies Sakthi</div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(52,211,153,0.1)">👑</div>
+          <div><div class="agent-name">Owner AI</div><div class="agent-role">Sakthi's intelligence agent</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+        </div>
+        <div class="agent-stat">Generates exclusive daily reports and business insights for Sakthi</div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon" style="background:rgba(251,146,60,0.1)">🙋</div>
+          <div><div class="agent-name">Enquiry Agent</div><div class="agent-role">Customer enquiry handler</div><div class="agent-status"><div class="dot-idle" style="width:8px;height:8px;border-radius:50%;background:#f59e0b;display:inline-block;"></div> Setting up</div></div>
+        </div>
+        <div class="agent-stat">Handles product FAQs, pre-order queries, and new customer enquiries for MAAHIS</div>
+      </div>
+    </div>
+
+    <!-- Live Agent Activity Feed -->
+    <div style="margin-top:28px;">
+      <div class="section-header">
+        <div><div class="section-title">Live Agent Activity</div><div class="section-sub">Real-time customer conversations & AI replies</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="filterAgentLog('all')" id="filter-all" style="opacity:1">All</button>
+          <button class="btn btn-ghost btn-sm" onclick="filterAgentLog('order')" id="filter-order">Order Agent</button>
+          <button class="btn btn-ghost btn-sm" onclick="filterAgentLog('tracking')" id="filter-tracking">Tracking</button>
+          <button class="btn btn-ghost btn-sm" onclick="filterAgentLog('complaint')" id="filter-complaint">Complaints</button>
+        </div>
+      </div>
+      <div id="agent-activity-feed" style="display:flex;flex-direction:column;gap:12px;max-height:500px;overflow-y:auto;padding:4px 0;">
+        <div style="text-align:center;color:var(--muted);font-size:13px;padding:32px;">No conversations yet — customer messages will appear here live</div>
+      </div>
+    </div>
+
+    <div style="margin-top:28px;">
+      <div class="section-header"><div class="section-title">Owner Daily Report</div></div>
+      <button class="btn btn-pink" onclick="fetchOwnerReport()" id="reportBtn">Generate Today's Report</button>
+      <div id="owner-report" style="margin-top:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:13px;line-height:1.7;white-space:pre-wrap;display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ── PIPELINE ── -->
+  <div id="panel-pipeline" class="panel">
+    <div class="section-header">
+      <div><div class="section-title">Agent Communication Pipeline</div><div class="section-sub">How your AI agents work together</div></div>
+    </div>
+    <div class="chart-card">
+      <div class="pipeline">
+        <div class="pipe-node"><div class="pipe-icon">💬</div><div class="pipe-name">WhatsApp</div><div class="pipe-role">Gateway</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><div class="pipe-icon">🧠</div><div class="pipe-name">Router AI</div><div class="pipe-role">Classifier</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><div class="pipe-icon">📦</div><div class="pipe-name">Data Agent</div><div class="pipe-role">Emergent API</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><div class="pipe-icon">⚡</div><div class="pipe-name">Action Agent</div><div class="pipe-role">Executor</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><div class="pipe-icon">💬</div><div class="pipe-name">Reply</div><div class="pipe-role">Customer</div></div>
+      </div>
+      <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <div class="stat-card" style="margin:0"><div class="stat-label">Emergent Webhook</div><div style="font-size:12px;margin-top:6px;color:var(--muted)">POST /api/new-order</div></div>
+        <div class="stat-card" style="margin:0"><div class="stat-label">Dashboard Sync</div><div style="font-size:12px;margin-top:6px;color:var(--muted)">GET /api/all-orders · 5s</div></div>
+        <div class="stat-card" style="margin:0"><div class="stat-label">Status Update</div><div style="font-size:12px;margin-top:6px;color:var(--muted)">POST /api/status-update</div></div>
+      </div>
+    </div>
+    <div class="event-log" id="event-log">
+      <div class="event-item"><div class="event-time">Now</div>Dashboard connected to server</div>
+    </div>
+  </div>
+
+  <!-- ── MESSAGES ── -->
+  <div id="panel-messages" class="panel">
+    <div class="section-header">
+      <div><div class="section-title">Send WhatsApp Message</div><div class="section-sub">Send direct messages to any customer</div></div>
+    </div>
+    <div class="msg-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Customer Phone</label>
+          <input class="form-input" type="text" id="msg-phone" placeholder="e.g. 918608080103">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Order Number</label>
+          <input class="form-input" type="text" id="msg-order" placeholder="e.g. ORD-001">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">Message</label>
+        <textarea class="form-input form-textarea" id="msg-body" placeholder="Type your message here..."></textarea>
+      </div>
+      <div class="form-label" style="margin-bottom:8px">Quick Templates</div>
+      <div class="template-row">
+        <div class="template-chip" onclick="setTemplate('ready')">📦 Ready for Pickup</div>
+        <div class="template-chip" onclick="setTemplate('delay')">⏳ Slight Delay</div>
+        <div class="template-chip" onclick="setTemplate('trial')">👗 Trial Ready</div>
+        <div class="template-chip" onclick="setTemplate('payment')">💰 Payment Reminder</div>
+        <div class="template-chip" onclick="setTemplate('thankyou')">🙏 Thank You</div>
+      </div>
+      <button class="btn btn-pink" onclick="sendWhatsApp()">Send WhatsApp Message</button>
+    </div>
+  </div>
+
+  <!-- ── ANALYTICS ── -->
+  <div id="panel-analytics" class="panel">
+    <div class="stats-grid" style="margin-bottom:24px">
+      <div class="stat-card"><div class="stat-label">Total Revenue</div><div class="stat-value stat-green" id="an-revenue">—</div></div>
+      <div class="stat-card"><div class="stat-label">Avg Order Value</div><div class="stat-value stat-purple" id="an-avg">—</div></div>
+      <div class="stat-card"><div class="stat-label">Delivered</div><div class="stat-value stat-pink" id="an-delivered">—</div></div>
+      <div class="stat-card"><div class="stat-label">In Production</div><div class="stat-value stat-yellow" id="an-production">—</div></div>
+    </div>
+    <div class="two-col">
+      <div class="chart-card">
+        <div class="chart-title">Orders by Status</div>
+        <canvas id="statusChart" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Orders by Type</div>
+        <canvas id="typeChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── LEADS ── -->
+  <div id="panel-leads" class="panel">
+    <div class="section-header">
+      <div><div class="section-title">🌸 New Customer Leads</div><div class="section-sub">Captured by Enquiry Agent — follow up to convert</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="loadLeads()">↻ Refresh</button>
+    </div>
+    <div class="stats-grid" style="margin-bottom:20px">
+      <div class="stat-card"><div class="stat-label">Total Leads</div><div class="stat-value stat-pink" id="lead-total">—</div></div>
+      <div class="stat-card"><div class="stat-label">New</div><div class="stat-value stat-yellow" id="lead-new">—</div></div>
+      <div class="stat-card"><div class="stat-label">Followed Up</div><div class="stat-value stat-green" id="lead-followed">—</div></div>
+      <div class="stat-card"><div class="stat-label">Converted</div><div class="stat-value stat-purple" id="lead-converted">—</div></div>
+    </div>
+    <div id="leads-list" style="display:flex;flex-direction:column;gap:12px;">
+      <div style="text-align:center;color:var(--muted);font-size:13px;padding:32px;">Loading leads...</div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <div class="toast-icon" id="toast-icon">✅</div>
+  <div class="toast-text"><div class="toast-title" id="toast-title">Done</div><div class="toast-sub" id="toast-sub"></div></div>
+</div>
+
+<script>
+// ── STATE ──
+let allOrders = [];
+let statusChart, typeChart;
+
+const STATUS_STEPS = ['new','received','cutting','stitching','embroidery','trial','finishing','ready','dispatched','delivered'];
+const STATUS_LABELS = {
+  new:'🆕 New', received:'✅ Received', cutting:'✂️ Cutting', stitching:'🧵 Stitching',
+  embroidery:'🌸 Embroidery', trial:'👗 Trial Ready', finishing:'✨ Finishing',
+  ready:'📦 Ready', dispatched:'🚚 Dispatched', delivered:'🎉 Delivered'
+};
+
+// ── CLOCK ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clockBadge').textContent =
+    now.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── TOAST ──
+function showToast(icon, title, sub, duration=3500) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-icon').textContent  = icon;
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-sub').textContent   = sub;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// ── LOG EVENT ──
+function logEvent(msg) {
+  const log = document.getElementById('event-log');
+  const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const el = document.createElement('div');
+  el.className = 'event-item';
+  el.innerHTML = `<div class="event-time">${now}</div>${msg}`;
+  log.insertBefore(el, log.firstChild);
+  if (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// ── STATUS BADGE ──
+function statusBadge(s) {
+  const key = (s||'new').toLowerCase().replace(/\s+/g,'');
+  const label = STATUS_LABELS[key] || ('📋 '+s);
+  const cls = ['new','received','cutting','stitching','embroidery','trial','finishing','ready','dispatched','delivered'].includes(key)
+    ? `s-${key}` : 's-new';
+  return `<span class="status-badge ${cls}">${label}</span>`;
+}
+
+// ── SOURCE TAG ──
+function sourceTag(src) {
+  if (src === 'emergent') return `<span class="source-tag src-emergent">Emergent</span>`;
+  return `<span class="source-tag src-local">Local</span>`;
+}
+
+// ── STATUS SELECT ──
+function statusSelect(order) {
+  const opts = STATUS_STEPS.map(s =>
+    `<option value="${s}" ${s === (order.status||'new') ? 'selected' : ''}>${STATUS_LABELS[s]||s}</option>`
+  ).join('');
+  return `<select class="status-select" id="sel-${order.order_number}" onchange="onStatusChange('${order.order_number}')">${opts}</select>
+          <button class="update-btn" id="upd-${order.order_number}" onclick="updateStatus('${order.order_number}')" disabled>Update</button>`;
+}
+
+function onStatusChange(orderNumber) {
+  const btn = document.getElementById(`upd-${orderNumber}`);
+  if (btn) btn.disabled = false;
+}
+
+// ── FETCH ALL ORDERS ──
+async function fetchOrders() {
+  try {
+    document.getElementById('syncStatus').textContent = 'Syncing...';
+    const res = await fetch('/api/all-orders');
+    const data = await res.json();
+    allOrders = data.orders || [];
+
+    // Update sync badge
+    document.getElementById('syncStatus').textContent = 'Live';
+    document.getElementById('orders-count').textContent =
+      `${data.total} orders · ${data.from_emergent} from Emergent · ${data.from_local} local`;
+
+    renderOverview(data);
+    renderOrders(allOrders);
+    renderAnalytics(allOrders);
+    logEvent(`Fetched ${allOrders.length} orders (${data.from_emergent} Emergent + ${data.from_local} local)`);
+
+    if (data.warning) showToast('⚠️', 'Emergent Unreachable', 'Showing local orders only');
+  } catch(e) {
+    document.getElementById('syncStatus').textContent = 'Error';
+    logEvent('⚠️ Failed to fetch orders: ' + e.message);
+    showToast('❌', 'Sync Failed', e.message);
+  }
+}
+
+// ── RENDER OVERVIEW ──
+function renderOverview(data) {
+  const orders = data.orders || [];
+  const revenue = orders.reduce((s,o) => s + parseFloat(o.amount||0), 0);
+  const ready = orders.filter(o => (o.status||'').toLowerCase() === 'ready').length;
+  const inProgress = orders.filter(o => !['delivered','new'].includes((o.status||'').toLowerCase())).length;
+
+  document.getElementById('ov-total').textContent    = orders.length;
+  document.getElementById('ov-revenue').textContent  = '₹' + revenue.toLocaleString('en-IN');
+  document.getElementById('ov-ready').textContent    = ready;
+  document.getElementById('ov-progress').textContent = inProgress;
+  document.getElementById('ov-emergent').textContent = data.from_emergent || 0;
+
+  const tbody = document.getElementById('ov-table');
+  const recent = orders.slice(0, 10);
+  if (!recent.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No orders yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = recent.map(o => `
+    <tr>
+      <td><strong>#${o.order_number}</strong></td>
+      <td>${o.customer_name}</td>
+      <td>${o.order_type}</td>
+      <td>${statusBadge(o.status)}</td>
+      <td>₹${parseFloat(o.amount||0).toLocaleString('en-IN')}</td>
+      <td>${sourceTag(o.source)}</td>
+    </tr>`).join('');
+}
+
+// ── RENDER ORDERS TABLE ──
+function renderOrders(orders) {
+  const tbody = document.getElementById('orders-table');
+  if (!orders.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No orders found</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = orders.map(o => `
+    <tr id="row-${o.order_number}">
+      <td><strong>#${o.order_number}</strong><br><span style="font-size:10px;color:var(--muted)">${sourceTag(o.source)}</span></td>
+      <td>${o.customer_name}${o.notes ? `<br><span style="font-size:11px;color:var(--muted)">${o.notes}</span>` : ''}</td>
+      <td><span class="phone-link">${o.phone || '—'}</span></td>
+      <td>${o.order_type}</td>
+      <td>
+        <div>₹${parseFloat(o.amount||0).toLocaleString('en-IN')}</div>
+        ${(o.advance_paid||0) > 0 ? `<div style="font-size:10px;color:#34d399">✅ Adv: ₹${parseFloat(o.advance_paid||0).toLocaleString('en-IN')}</div>` : ''}
+        ${(o.amount||0) > 0 ? `<div style="font-size:10px;color:#f87171">⚖️ Bal: ₹${(parseFloat(o.amount||0)-parseFloat(o.advance_paid||0)).toLocaleString('en-IN')}</div>` : ''}
+      </td>
+      <td>${statusBadge(o.status)}</td>
+      <td>${statusSelect(o)}</td>
+      <td>
+        ${o.tracking_link ? `
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <a class="track-link" href="${o.tracking_link}" target="_blank">🔗 Track</a>
+            <button onclick="copyTrackLink('${o.tracking_link}')" style="font-size:10px;padding:3px 7px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.3);color:#a78bfa;border-radius:6px;cursor:pointer">📋 Copy</button>
+            <button onclick="waShareLink('${o.tracking_link}','${o.customer_name}','${o.order_number}')" style="font-size:10px;padding:3px 7px;background:rgba(52,211,99,0.15);border:1px solid rgba(52,211,99,0.3);color:#34d399;border-radius:6px;cursor:pointer">💬 WA</button>
+          </div>` : '—'}
+      </td>
+    </tr>`).join('');
+}
+
+// ── COPY & SHARE TRACKING LINK ──
+function copyTrackLink(link) {
+  navigator.clipboard.writeText(link).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => btn.textContent = '📋 Copy', 2000);
+  });
+}
+function waShareLink(link, name, orderNum) {
+  const msg = encodeURIComponent(`Hi ${name}! 👗 Your Maahis order #${orderNum} is being processed. Track your order here: ${link}`);
+  window.open(`https://wa.me/?text=${msg}`, '_blank');
+}
+
+// ── FILTER ORDERS ──
+function filterOrders() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = allOrders.filter(o =>
+    (o.customer_name||'').toLowerCase().includes(q) ||
+    (o.order_number||'').toLowerCase().includes(q) ||
+    (o.phone||'').includes(q) ||
+    (o.order_type||'').toLowerCase().includes(q)
+  );
+  renderOrders(filtered);
+}
+
+// ── UPDATE STATUS ──
+async function updateStatus(orderNumber) {
+  const sel = document.getElementById(`sel-${orderNumber}`);
+  const btn = document.getElementById(`upd-${orderNumber}`);
+  const newStatus = sel.value;
+  const order = allOrders.find(o => o.order_number === orderNumber);
+  if (!order) return;
+
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  try {
+    const res = await fetch('/api/status-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_number:  orderNumber,
+        phone:         order.phone,
+        new_status:    newStatus,
+        customer_name: order.customer_name
+      })
+    });
+    const data = await res.json();
+
+    // Update local data
+    const local = allOrders.find(o => o.order_number === orderNumber);
+    if (local) local.status = newStatus;
+
+    // Refresh the row badge
+    const row = document.getElementById(`row-${orderNumber}`);
+    if (row) {
+      const cells = row.querySelectorAll('td');
+      if (cells[5]) cells[5].innerHTML = statusBadge(newStatus);
+    }
+
+    btn.textContent = '✓ Done';
+    logEvent(`✅ #${orderNumber} updated to ${STATUS_LABELS[newStatus]||newStatus}`);
+
+    if (data.whatsapp_sent) {
+      showToast('✅', 'Status Updated + WhatsApp Sent', `#${orderNumber} → ${STATUS_LABELS[newStatus]||newStatus}`);
+    } else {
+      showToast('✅', 'Status Updated', `WhatsApp: ${WA_TOKEN ? 'check Meta setup' : 'no token configured'}`);
+    }
+
+    setTimeout(() => { btn.textContent = 'Update'; }, 2500);
+
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+    showToast('❌', 'Update Failed', e.message);
+    logEvent('❌ Status update failed: ' + e.message);
+  }
+}
+
+// ── RENDER ANALYTICS ──
+function renderAnalytics(orders) {
+  const revenue   = orders.reduce((s,o) => s + parseFloat(o.amount||0), 0);
+  const avg       = orders.length ? Math.round(revenue/orders.length) : 0;
+  const delivered = orders.filter(o => (o.status||'').toLowerCase() === 'delivered').length;
+  const prod      = orders.filter(o => ['cutting','stitching','embroidery','finishing'].includes((o.status||'').toLowerCase())).length;
+
+  document.getElementById('an-revenue').textContent   = '₹' + revenue.toLocaleString('en-IN');
+  document.getElementById('an-avg').textContent       = '₹' + avg.toLocaleString('en-IN');
+  document.getElementById('an-delivered').textContent = delivered;
+  document.getElementById('an-production').textContent= prod;
+
+  // Status distribution
+  const statusCount = {};
+  orders.forEach(o => { const s = o.status||'new'; statusCount[s] = (statusCount[s]||0)+1; });
+  const statusKeys = Object.keys(statusCount);
+  const statusVals = Object.values(statusCount);
+  const colors = ['#f472b6','#a78bfa','#60a5fa','#34d399','#fbbf24','#f87171','#818cf8','#2dd4bf','#fb923c','#c084fc'];
+
+  if (statusChart) statusChart.destroy();
+  statusChart = new Chart(document.getElementById('statusChart'), {
+    type: 'doughnut',
+    data: { labels: statusKeys.map(s => STATUS_LABELS[s]||s), datasets: [{ data: statusVals, backgroundColor: colors, borderWidth: 0 }] },
+    options: { responsive:true, plugins:{ legend:{ labels:{ color:'rgba(240,232,245,.6)', font:{size:11} } } } }
+  });
+
+  // Type distribution
+  const typeCount = {};
+  orders.forEach(o => { const t = o.order_type||'Order'; typeCount[t] = (typeCount[t]||0)+1; });
+  const typeKeys = Object.keys(typeCount);
+  const typeVals = Object.values(typeCount);
+
+  if (typeChart) typeChart.destroy();
+  typeChart = new Chart(document.getElementById('typeChart'), {
+    type: 'bar',
+    data: {
+      labels: typeKeys,
+      datasets: [{ data: typeVals, backgroundColor: 'rgba(167,139,250,0.5)', borderColor: '#a78bfa', borderWidth: 1, borderRadius: 6 }]
+    },
+    options: {
+      responsive:true,
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{ ticks:{color:'rgba(240,232,245,.5)',font:{size:11}}, grid:{color:'rgba(255,255,255,.04)'} },
+        y:{ ticks:{color:'rgba(240,232,245,.5)',font:{size:11}}, grid:{color:'rgba(255,255,255,.04)'} }
+      }
+    }
+  });
+}
+
+// ── OWNER REPORT ──
+async function fetchOwnerReport() {
+  const btn = document.getElementById('reportBtn');
+  const box = document.getElementById('owner-report');
+  btn.textContent = 'Generating...'; btn.disabled = true;
+  box.style.display = 'block'; box.textContent = 'AI is analysing your orders...';
+  try {
+    const res  = await fetch('/api/owner-report');
+    const data = await res.json();
+    box.textContent = data.report || 'No report generated.';
+    logEvent('📊 Owner report generated');
+  } catch(e) {
+    box.textContent = 'Failed: ' + e.message;
+  }
+  btn.textContent = 'Regenerate Report'; btn.disabled = false;
+}
+
+// ── SEND WHATSAPP ──
+async function sendWhatsApp() {
+  const phone   = document.getElementById('msg-phone').value.trim();
+  const orderNo = document.getElementById('msg-order').value.trim();
+  const body    = document.getElementById('msg-body').value.trim();
+  if (!phone || !body) { showToast('⚠️', 'Missing Fields', 'Phone and message are required'); return; }
+
+  try {
+    const res = await fetch('/api/status-update', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ order_number: orderNo||'MANUAL', phone, new_status: 'update', customer_name: 'Customer', custom_message: body })
+    });
+    const data = await res.json();
+    showToast('✅', 'Message Sent!', `To: ${phone}`);
+    logEvent(`💬 Manual WhatsApp sent to ${phone}`);
+    document.getElementById('msg-body').value = '';
+  } catch(e) {
+    showToast('❌', 'Send Failed', e.message);
+  }
+}
+
+// ── MESSAGE TEMPLATES ──
+const TEMPLATES = {
+  ready:    o => `Hi there! 👋\n\nGreat news! Your order is ready for pickup at Maahis Designer Boutique. 📦✨\n\nPlease visit us at your convenience.\n\n— Maahis Designer Boutique`,
+  delay:    o => `Hi there! 👋\n\nWe wanted to let you know there's a small delay with your order. We're working hard to complete it as soon as possible.\n\nThank you for your patience! 🙏\n\n— Maahis Designer Boutique`,
+  trial:    o => `Hi there! 👗\n\nYour outfit is ready for a trial fitting at Maahis! Please come in at your earliest convenience.\n\n— Maahis Designer Boutique`,
+  payment:  o => `Hi there! 💰\n\nThis is a gentle reminder that your order balance is pending. Please arrange payment at your earliest convenience.\n\nThank you! 🙏\n— Maahis Designer Boutique`,
+  thankyou: o => `Hi there! 🌸\n\nThank you so much for choosing Maahis Designer Boutique! We hope you love your outfit.\n\nWe'd be thrilled to see you again! ✨\n\n— Maahis Designer Boutique`
+};
+function setTemplate(key) {
+  document.getElementById('msg-body').value = TEMPLATES[key]();
+}
+
+// ── TAB SWITCH ──
+function showTab(name, el) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  el.classList.add('active');
+}
+
+// ── AGENT ACTIVITY FEED ──
+const AGENT_LABELS = { order:'Order Agent', tracking:'Tracking Agent', complaint:'Alert Agent', general:'Router AI', owner:'Owner AI' };
+const AGENT_ICONS  = { order:'📦', tracking:'🔗', complaint:'🚨', general:'🧠', owner:'👑' };
+let allChatLogs = [];
+let activeAgentFilter = 'all';
+
+function filterAgentLog(agent) {
+  activeAgentFilter = agent;
+  document.querySelectorAll('[id^="filter-"]').forEach(b => b.style.opacity = '0.5');
+  document.getElementById('filter-' + agent).style.opacity = '1';
+  renderAgentFeed(allChatLogs);
+}
+
+function renderAgentFeed(logs) {
+  const feed = document.getElementById('agent-activity-feed');
+  if (!feed) return;
+  const filtered = activeAgentFilter === 'all' ? logs : logs.filter(l => l.agent === activeAgentFilter);
+  if (!filtered.length) {
+    feed.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:13px;padding:32px;">No conversations yet — customer messages will appear here live</div>`;
+    return;
+  }
+  feed.innerHTML = filtered.map(l => {
+    const t = new Date(l.timestamp);
+    const time = t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+    const agentLabel = AGENT_LABELS[l.agent] || l.agent || 'AI Agent';
+    const agentIcon  = AGENT_ICONS[l.agent]  || '🤖';
+    return `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px">${agentIcon}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--pink)">${agentLabel}</span>
+          <span style="font-size:10px;color:var(--muted);background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:10px">${l.intent || ''}</span>
+        </div>
+        <span style="font-size:11px;color:var(--muted)">${time} · ${l.phone || ''}</span>
+      </div>
+      <div style="background:rgba(96,165,250,0.08);border-left:3px solid #60a5fa;border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:8px;">
+        <div style="font-size:10px;color:#60a5fa;margin-bottom:4px">👤 CUSTOMER</div>
+        <div style="font-size:13px">${l.customer_msg || l.customer_message || ''}</div>
+      </div>
+      <div style="background:rgba(244,114,182,0.08);border-left:3px solid var(--pink);border-radius:0 8px 8px 0;padding:10px 12px;">
+        <div style="font-size:10px;color:var(--pink);margin-bottom:4px">🤖 AI REPLY</div>
+        <div style="font-size:13px;white-space:pre-wrap">${l.ai_reply || l.reply || ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function fetchChatLogs() {
+  try {
+    const res = await fetch('/api/chat-logs');
+    const data = await res.json();
+    allChatLogs = data.logs || [];
+    renderAgentFeed(allChatLogs);
+  } catch(e) {}
+}
+
+// ── LEADS ──────────────────────────────────────────────────
+const LEAD_STATUS_COLORS = { new:'#f59e0b', followed_up:'#60a5fa', converted:'#34d399', lost:'#f87171' };
+const LEAD_STATUS_LABELS = { new:'🆕 New', followed_up:'📞 Followed Up', converted:'✅ Converted', lost:'❌ Lost' };
+
+async function loadLeads() {
+  try {
+    const res  = await fetch('/api/leads');
+    const data = await res.json();
+    const leads = data.leads || [];
+
+    document.getElementById('lead-total').textContent     = leads.length;
+    document.getElementById('lead-new').textContent       = leads.filter(l=>l.status==='new').length;
+    document.getElementById('lead-followed').textContent  = leads.filter(l=>l.status==='followed_up').length;
+    document.getElementById('lead-converted').textContent = leads.filter(l=>l.status==='converted').length;
+
+    const container = document.getElementById('leads-list');
+    if (!leads.length) {
+      container.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:13px;padding:40px;">No leads yet — Enquiry Agent will capture them automatically 🌸</div>`;
+      return;
+    }
+    container.innerHTML = leads.map(l => `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start;">
+        <div style="width:42px;height:42px;border-radius:50%;background:rgba(244,114,182,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🌸</div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="font-weight:700;font-size:14px;">${l.name || 'Unknown'}</span>
+            <span style="font-size:11px;color:var(--muted);">📱 ${l.phone || '—'}</span>
+            <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,0.06);color:${LEAD_STATUS_COLORS[l.status]||'#aaa'}">${LEAD_STATUS_LABELS[l.status]||l.status}</span>
+          </div>
+          <div style="font-size:12px;color:#a78bfa;margin-bottom:4px;">👗 ${l.interest || 'General enquiry'}</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">"${(l.message||'').slice(0,120)}"</div>
+          <div style="font-size:10px;color:var(--muted);">${new Date(l.timestamp).toLocaleString('en-IN')}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+          <button onclick="updateLead(${l.id},'followed_up')" style="font-size:11px;padding:4px 10px;border-radius:8px;border:1px solid #60a5fa;color:#60a5fa;background:transparent;cursor:pointer;">📞 Called</button>
+          <button onclick="updateLead(${l.id},'converted')" style="font-size:11px;padding:4px 10px;border-radius:8px;border:1px solid #34d399;color:#34d399;background:transparent;cursor:pointer;">✅ Converted</button>
+          <button onclick="updateLead(${l.id},'lost')" style="font-size:11px;padding:4px 10px;border-radius:8px;border:1px solid #f87171;color:#f87171;background:transparent;cursor:pointer;">❌ Lost</button>
+        </div>
+      </div>`).join('');
+  } catch(e) { console.error('Leads error:', e); }
+}
+
+async function updateLead(id, status) {
+  await fetch(`/api/leads/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+  loadLeads();
+}
+
+// ── AUTO REFRESH ──
+fetchOrders();
+fetchChatLogs();
+loadLeads();
+setInterval(fetchOrders, 5000);
+setInterval(fetchChatLogs, 5000);
+setInterval(loadLeads, 15000);
+</script>
+</body>
+</html>
