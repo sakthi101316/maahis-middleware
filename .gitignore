@@ -1,6 +1,8 @@
 .env
 node_modules/
-*.json
+orders_store.json
+chatlog_store.json
 ngrok
 ngrok.zip
 cloudflared
+.DS_Store
