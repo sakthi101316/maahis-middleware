@@ -30,6 +30,30 @@ const VERIFY_TOKEN    = process.env.VERIFY_TOKEN        || 'maahis_webhook_2024'
 const MODEL_FAST = 'llama-3.1-8b-instant';
 const MODEL_MAIN = 'llama-3.3-70b-versatile';
 
+// ── BOUTIQUE CONFIG ─────────────────────────────────────────
+const BOUTIQUES = {
+  maahis: {
+    id:         'maahis',
+    name:       'MAAHIS Designer Boutique',
+    ownerPhone: '918608080103',
+    ownerName:  'Sakthi',
+    pin:        '101316'
+  },
+  neethu: {
+    id:         'neethu',
+    name:       "Neetu's Designer Boutique",
+    ownerPhone: '919944151122',
+    ownerName:  'Neethu',
+    pin:        '994415'
+  }
+};
+
+function detectBoutique(payload) {
+  const phone = payload?.owner_phone || payload?.store_phone || '';
+  if (phone.includes('9944151122')) return BOUTIQUES.neethu;
+  return BOUTIQUES.maahis; // default
+}
+
 // ── EMERGENT API HELPER ─────────────────────────────────────
 async function emergentFetch(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
@@ -856,43 +880,107 @@ app.get('/webhook', (req, res) => {
 
 // ── WHATSAPP INCOMING MESSAGES ────────────────────────────────
 app.post('/webhook', async (req, res) => {
-  // Always respond 200 immediately so Meta doesn't retry
   res.sendStatus(200);
 
   try {
     const body = req.body;
-    if (body.object !== 'whatsapp_business_account') return;
 
+    // ── EMERGENT: new_order ──────────────────────────────────
+    if (body.type === 'new_order') {
+      const boutique = detectBoutique(body);
+      const { order_number, customer_phone, customer_name, item, delivery_date, amount, advance_paid } = body;
+      const phone = customer_phone;
+      console.log(`\n[EMERGENT NEW ORDER] #${order_number} | ${boutique.name} | ${phone}`);
+
+      const exists = orderStore.find(o => o.order_number === order_number);
+      if (!exists) {
+        orderStore.unshift({ order_number, customer_name, phone, order_type: item, delivery_date, amount, advance_paid, status: 'received', boutique_id: boutique.id, created_at: new Date().toISOString(), source: 'emergent' });
+        saveOrders();
+      }
+
+      const trackLink = generateTrackingLink(phone, order_number);
+      const msg = `Hi ${customer_name || 'there'}! 👋\n\nThank you for choosing *${boutique.name}* 🌸\n\n📦 Order #${order_number}\n👗 ${item}\n📅 Expected: ${delivery_date}\n💰 Amount: ₹${amount || ''}\n\n🔗 Track your order: ${trackLink}\n\nQuestions? Just reply here 😊`;
+      await sendWhatsApp(phone, msg);
+
+      // Alert owner
+      await sendWhatsApp(boutique.ownerPhone, `🌸 *New Order!*\n👤 ${customer_name}\n📱 ${phone}\n👗 ${item}\n💰 ₹${amount} (Adv: ₹${advance_paid})\n📅 ${delivery_date}`);
+      return;
+    }
+
+    // ── EMERGENT: status_update ──────────────────────────────
+    if (body.type === 'status_update') {
+      const boutique = detectBoutique(body);
+      const { order_number, phone, new_status, customer_name } = body;
+      console.log(`\n[EMERGENT STATUS] #${order_number} → ${new_status} | ${boutique.name}`);
+
+      const local = orderStore.find(o => o.order_number === order_number);
+      if (local) { local.status = new_status; saveOrders(); }
+
+      const trackLink = generateTrackingLink(phone, order_number);
+      const msg = `Hi ${customer_name || 'there'}! 👋\n\n*${boutique.name}* update 🌸\n📦 Order #${order_number}\n${getStatusEmoji(new_status)}\n🔗 Track: ${trackLink}\n\nQuestions? Just reply here 😊`;
+      if (phone) await sendWhatsApp(phone, msg);
+      return;
+    }
+
+    // ── WHATSAPP: incoming customer message ──────────────────
+    if (body.object !== 'whatsapp_business_account') return;
     const messages = body.entry?.[0]?.changes?.[0]?.value?.messages;
     if (!messages?.length) return;
 
     const msg  = messages[0];
-    const from = msg.from; // customer's phone (e.g. "919876543210")
+    const from = msg.from;
     const text = msg.type === 'text' ? msg.text?.body?.trim() : null;
     if (!text) return;
 
     console.log(`\n[WA IN] From: ${from} | "${text.slice(0, 80)}"`);
 
-    // Check if owner is messaging (last 10 digits match a known owner number)
-    const isOwner = false; // Extend later if needed
+    // detect owner
+    const ownerBoutique = Object.values(BOUTIQUES).find(b => from.includes(b.ownerPhone.slice(-10)));
+    const isOwner = !!ownerBoutique;
 
-    // Route & reply
     const route = await routeMessage(text, isOwner);
     console.log(`[→] agent:${route.agent} intent:${route.intent}`);
 
     if (route.intent === 'OFF_TOPIC') {
-      await sendWhatsApp(from, "I can only help with your Maahis boutique orders 😊");
+      await sendWhatsApp(from, "I can only help with your boutique orders 😊");
+      return;
+    }
+
+    // Enquiry agent
+    if (route.agent === 'enquiry' || route.intent === 'ENQUIRY') {
+      const history = getHistory(from);
+      const r = await groq.chat.completions.create({
+        model: MODEL_MAIN, max_tokens: 500, temperature: 0.5,
+        messages: [{ role:'system', content: SYSTEM.enquiry }, ...history, { role:'user', content: text }]
+      });
+      const reply = r.choices[0].message.content.trim();
+      saveHistory(from, 'user', text);
+      saveHistory(from, 'assistant', reply);
+      await sendWhatsApp(from, reply);
+
+      const lowerMsg = text.toLowerCase();
+      const interestKeywords = ['blouse','suit','lehenga','gown','bridal','embroidery','aari','maggam','partywe','fitting','appointment','book','order','stitch'];
+      const detectedInterest = interestKeywords.find(k => lowerMsg.includes(k));
+      const nameMatch = text.match(/(?:my name is|i am|i'm|iam)\s+([A-Za-z]+)/i);
+      const detectedName = nameMatch ? nameMatch[1] : null;
+      if (detectedInterest || detectedName) {
+        await saveLead({ phone: from, name: detectedName, interest: detectedInterest || 'general enquiry', message: text.slice(0,300), language:'en' });
+        if (detectedName && detectedInterest) {
+          await sendWhatsApp('918608080103', `🌸 *New Lead!*\n👤 ${detectedName}\n📱 ${from}\n👗 ${detectedInterest}\n💬 "${text.slice(0,100)}"`);
+        }
+      }
+      addChatLog({ phone: from, customer_msg: text, ai_reply: reply, agent: 'enquiry', intent: 'ENQUIRY' });
       return;
     }
 
     const liveData = await buildLiveData(from, route.intent);
     const reply    = await getReply(route.agent, from, text, route, liveData);
-
-    saveHistory(from, 'user',      text);
+    saveHistory(from, 'user', text);
     saveHistory(from, 'assistant', reply);
-
     await sendWhatsApp(from, reply);
+    addChatLog({ phone: from, customer_msg: text, ai_reply: reply, agent: route.agent, intent: route.intent });
     console.log(`[WA OUT] → ${from} | "${reply.slice(0, 80)}"`);
+
   } catch (err) {
     console.error('[WA WEBHOOK ERR]', err.message);
   }
