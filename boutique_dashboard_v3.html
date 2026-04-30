@@ -242,7 +242,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   <!-- ── AGENTS ── -->
   <div id="panel-agents" class="panel">
     <div class="section-header">
-      <div><div class="section-title">AI Agent Pipeline</div><div class="section-sub">7 specialised agents working for MAAHIS</div></div>
+      <div><div class="section-title">AI Agent Pipeline</div><div class="section-sub" id="agents-sub">7 specialised agents working for MAAHIS</div></div>
     </div>
     <div class="agents-grid">
       <div class="agent-card">
@@ -278,21 +278,21 @@ tr:hover td { background: rgba(255,255,255,0.02); }
           <div class="agent-icon" style="background:rgba(248,113,113,0.1)">🚨</div>
           <div><div class="agent-name">Alert Agent</div><div class="agent-role">Complaint handler</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
         </div>
-        <div class="agent-stat">Monitors complaints and urgent issues proactively, notifies Sakthi</div>
+        <div class="agent-stat" id="alert-agent-stat">Monitors complaints and urgent issues proactively, notifies owner</div>
       </div>
       <div class="agent-card">
         <div class="agent-header">
           <div class="agent-icon" style="background:rgba(52,211,153,0.1)">👑</div>
-          <div><div class="agent-name">Owner AI</div><div class="agent-role">Sakthi's intelligence agent</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
+          <div><div class="agent-name">Owner AI</div><div class="agent-role" id="owner-ai-role">Owner's intelligence agent</div><div class="agent-status"><div class="dot-active"></div> Active</div></div>
         </div>
-        <div class="agent-stat">Generates exclusive daily reports and business insights for Sakthi</div>
+        <div class="agent-stat" id="owner-ai-stat">Generates exclusive daily reports and business insights for the owner</div>
       </div>
       <div class="agent-card">
         <div class="agent-header">
           <div class="agent-icon" style="background:rgba(251,146,60,0.1)">🙋</div>
-          <div><div class="agent-name">Enquiry Agent</div><div class="agent-role">Customer enquiry handler</div><div class="agent-status"><div class="dot-idle" style="width:8px;height:8px;border-radius:50%;background:#f59e0b;display:inline-block;"></div> Setting up</div></div>
+          <div><div class="agent-name">Enquiry Agent</div><div class="agent-role">Customer enquiry handler</div><div class="agent-status"><div class="dot-idle" style="width:8px;height:8px;border-radius:50%;background:#f59e0b;display:inline-block;"></div> Active</div></div>
         </div>
-        <div class="agent-stat">Handles product FAQs, pre-order queries, and new customer enquiries for MAAHIS</div>
+        <div class="agent-stat" id="enquiry-agent-stat">Handles product FAQs, pre-order queries, and new customer enquiries</div>
       </div>
     </div>
 
@@ -875,8 +875,8 @@ async function updateLead(id, status) {
 // ── BOUTIQUE SWITCHER ────────────────────────────────────────
 let activeBoutique = 'maahis';
 const BOUTIQUE_CONFIG = {
-  maahis: { name:'MAAHIS', sub:'AI Command Center', color:'#f472b6', emoji:'🌸' },
-  neethu: { name:"NEETU'S", sub:"Boutique Command Center", color:'#a78bfa', emoji:'✨' }
+  maahis: { name:'MAAHIS', fullName:'MAAHIS Designer Boutique', owner:'Mamtha', sub:'AI Command Center', color:'#f472b6', emoji:'🌸' },
+  neethu: { name:"NEETU'S", fullName:"Neetha Prakash Designer Boutique", owner:'Neetha Prakash', sub:"Boutique Command Center", color:'#a78bfa', emoji:'✨' }
 };
 
 function switchBoutique(id) {
@@ -886,13 +886,20 @@ function switchBoutique(id) {
   document.getElementById('header-logo').textContent = cfg.emoji + ' ' + cfg.name;
   document.getElementById('header-sub').textContent  = cfg.sub;
 
+  // Dynamic agent text
+  document.getElementById('agents-sub').textContent       = `7 specialised agents working for ${cfg.fullName}`;
+  document.getElementById('owner-ai-role').textContent    = `${cfg.owner}'s intelligence agent`;
+  document.getElementById('owner-ai-stat').textContent    = `Generates exclusive daily reports and business insights for ${cfg.owner}`;
+  document.getElementById('alert-agent-stat').textContent = `Monitors complaints and urgent issues proactively, notifies ${cfg.owner}`;
+  document.getElementById('enquiry-agent-stat').textContent = `Handles product FAQs, pre-order queries, and new customer enquiries for ${cfg.fullName}`;
+
   // Update button styles
-  document.getElementById('btn-maahis').style.background = id==='maahis' ? '#f472b6' : 'transparent';
+  document.getElementById('btn-maahis').style.background  = id==='maahis' ? '#f472b6' : 'transparent';
   document.getElementById('btn-maahis').style.color       = id==='maahis' ? '#fff' : 'var(--muted)';
   document.getElementById('btn-maahis').style.borderColor = id==='maahis' ? '#f472b6' : 'var(--border)';
   document.getElementById('btn-neethu').style.background  = id==='neethu' ? '#a78bfa' : 'transparent';
-  document.getElementById('btn-neethu').style.color        = id==='neethu' ? '#fff' : 'var(--muted)';
-  document.getElementById('btn-neethu').style.borderColor  = id==='neethu' ? '#a78bfa' : 'var(--border)';
+  document.getElementById('btn-neethu').style.color       = id==='neethu' ? '#fff' : 'var(--muted)';
+  document.getElementById('btn-neethu').style.borderColor = id==='neethu' ? '#a78bfa' : 'var(--border)';
 
   fetchOrders();
   loadLeads();
