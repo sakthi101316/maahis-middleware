@@ -33,25 +33,35 @@ const MODEL_MAIN = 'llama-3.3-70b-versatile';
 // ── BOUTIQUE CONFIG ─────────────────────────────────────────
 const BOUTIQUES = {
   maahis: {
-    id:         'maahis',
-    name:       'MAAHIS Designer Boutique',
-    ownerPhone: '918608080103',
-    ownerName:  'Sakthi',
-    pin:        '101316'
+    id:          'maahis',
+    name:        'MAAHIS Designer Boutique',
+    ownerPhone:  '918608080103',
+    ownerName:   'Sakthi',
+    pin:         '101316',
+    waPhoneId:   process.env.WHATSAPP_PHONE_ID  || '1047193258471852',
+    waToken:     process.env.WHATSAPP_TOKEN      || '',
+    verifyToken: process.env.VERIFY_TOKEN        || 'maahis_webhook_2024'
   },
   neethu: {
-    id:         'neethu',
-    name:       "Neetu's Designer Boutique",
-    ownerPhone: '919944151122',
-    ownerName:  'Neethu',
-    pin:        '994415'
+    id:          'neethu',
+    name:        "Neetu's Designer Boutique",
+    ownerPhone:  '919944151122',
+    ownerName:   'Neethu',
+    pin:         '994415',
+    waPhoneId:   process.env.NEETHU_WHATSAPP_PHONE_ID || '',
+    waToken:     process.env.NEETHU_WHATSAPP_TOKEN    || '',
+    verifyToken: process.env.NEETHU_VERIFY_TOKEN      || 'neethu_webhook_2024'
   }
 };
 
+// Detect boutique by WhatsApp phone_number_id
+function detectBoutiqueByPhoneId(phoneId) {
+  return Object.values(BOUTIQUES).find(b => b.waPhoneId === phoneId) || BOUTIQUES.maahis;
+}
+
+// Detect boutique from Emergent payload (separate webhook URLs handle this now)
 function detectBoutique(payload) {
-  const phone = payload?.owner_phone || payload?.store_phone || '';
-  if (phone.includes('9944151122')) return BOUTIQUES.neethu;
-  return BOUTIQUES.maahis; // default
+  return BOUTIQUES.maahis; // default — Emergent uses /webhook/maahis or /webhook/neethu
 }
 
 // ── EMERGENT API HELPER ─────────────────────────────────────
@@ -152,8 +162,11 @@ async function getAllActiveOrders() {
 }
 
 // ── WHATSAPP SENDER ──────────────────────────────────────────
-async function sendWhatsApp(toPhone, message) {
-  if (!WA_TOKEN) { console.log('[WA] No token — skipping send'); return { skipped: true }; }
+async function sendWhatsApp(toPhone, message, boutique = null) {
+  const b = boutique || BOUTIQUES.maahis;
+  const token   = b.waToken   || WA_TOKEN;
+  const phoneId = b.waPhoneId || WA_PHONE_ID;
+  if (!token) { console.log('[WA] No token — skipping send'); return { skipped: true }; }
   const { default: fetch } = await import('node-fetch');
   let phone = toPhone.replace(/\D/g, '');
   if (phone.startsWith('0')) phone = '91' + phone.slice(1);
@@ -167,10 +180,10 @@ async function sendWhatsApp(toPhone, message) {
   };
 
   try {
-    const res  = await fetch(`https://graph.facebook.com/v19.0/${WA_PHONE_ID}/messages`, {
+    const res  = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${WA_TOKEN}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type':  'application/json'
       },
       body: JSON.stringify(payload)
@@ -216,47 +229,130 @@ const fs          = require('fs');
 const { Pool }    = require('pg');
 const ORDERS_FILE = path.join(__dirname, 'orders_store.json');
 
-// ── POSTGRES (Railway) ────────────────────────────────────────
+// ── POSTGRES (Supabase) ───────────────────────────────────────
 let pgPool = null;
 if (process.env.DATABASE_URL) {
   pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
+
+  // Init all tables
   pgPool.query(`
     CREATE TABLE IF NOT EXISTS chat_logs (
       id SERIAL PRIMARY KEY,
       timestamp TIMESTAMPTZ DEFAULT NOW(),
+      phone TEXT, agent TEXT, intent TEXT,
+      customer_msg TEXT, ai_reply TEXT, data JSONB
+    );
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      order_number TEXT UNIQUE,
+      customer_name TEXT,
       phone TEXT,
-      agent TEXT,
-      intent TEXT,
-      customer_msg TEXT,
-      ai_reply TEXT,
-      data JSONB
-    )
-  `).then(() => console.log('[PG] chat_logs table ready'))
+      order_type TEXT,
+      delivery_date TEXT,
+      amount NUMERIC DEFAULT 0,
+      advance_paid NUMERIC DEFAULT 0,
+      status TEXT DEFAULT 'new',
+      boutique_id TEXT DEFAULT 'maahis',
+      notes TEXT,
+      source TEXT DEFAULT 'emergent',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS leads (
+      id SERIAL PRIMARY KEY,
+      timestamp TIMESTAMPTZ DEFAULT NOW(),
+      phone TEXT, name TEXT, interest TEXT,
+      message TEXT, status TEXT DEFAULT 'new',
+      language TEXT DEFAULT 'en',
+      boutique_id TEXT DEFAULT 'maahis'
+    );
+    CREATE TABLE IF NOT EXISTS appointments (
+      id SERIAL PRIMARY KEY,
+      timestamp TIMESTAMPTZ DEFAULT NOW(),
+      phone TEXT,
+      name TEXT,
+      preferred_date TEXT,
+      preferred_time TEXT,
+      garment TEXT,
+      boutique_id TEXT DEFAULT 'maahis',
+      status TEXT DEFAULT 'pending'
+    );
+  `).then(() => console.log('[PG] All tables ready'))
     .catch(e => console.error('[PG] Table init error:', e.message));
 }
 
-function loadOrders() {
-  try {
-    if (fs.existsSync(ORDERS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-      console.log(`[STORE] Loaded ${data.length} orders from disk`);
-      return data;
-    }
-  } catch(e) { console.error('[STORE] Load error:', e.message); }
-  return [];
-}
-
-function saveOrders() {
-  try { fs.writeFileSync(ORDERS_FILE, JSON.stringify(orderStore, null, 2)); }
-  catch(e) { console.error('[STORE] Save error:', e.message); }
-}
-
-// ── MEMORY ──────────────────────────────────────────────────
+// ── ORDER STORE (Supabase-backed, in-memory cache) ───────────
 const memory     = new Map();
-const orderStore = loadOrders();
+let orderStore   = [];
+
+async function loadOrders() {
+  if (pgPool) {
+    try {
+      const r = await pgPool.query(`SELECT * FROM orders ORDER BY created_at DESC`);
+      orderStore = r.rows;
+      console.log(`[PG] Loaded ${orderStore.length} orders from Supabase`);
+    } catch(e) { console.error('[PG] Load orders error:', e.message); }
+  } else {
+    // fallback: local JSON
+    try {
+      if (fs.existsSync(ORDERS_FILE)) {
+        orderStore = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+        console.log(`[STORE] Loaded ${orderStore.length} orders from disk`);
+      }
+    } catch(e) {}
+  }
+}
+
+async function saveOrder(order) {
+  // Update in-memory cache
+  const idx = orderStore.findIndex(o => o.order_number === order.order_number);
+  if (idx >= 0) orderStore[idx] = { ...orderStore[idx], ...order };
+  else orderStore.unshift(order);
+
+  if (pgPool) {
+    try {
+      await pgPool.query(`
+        INSERT INTO orders (order_number, customer_name, phone, order_type, delivery_date, amount, advance_paid, status, boutique_id, notes, source, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT (order_number) DO UPDATE SET
+          status=EXCLUDED.status, amount=EXCLUDED.amount,
+          advance_paid=EXCLUDED.advance_paid, updated_at=NOW()
+      `, [
+        order.order_number, order.customer_name, order.phone,
+        order.order_type, order.delivery_date,
+        parseFloat(order.amount||0), parseFloat(order.advance_paid||0),
+        order.status||'new', order.boutique_id||'maahis',
+        order.notes||null, order.source||'emergent',
+        order.created_at||new Date().toISOString()
+      ]);
+    } catch(e) { console.error('[PG] Save order error:', e.message); }
+  } else {
+    try { fs.writeFileSync(ORDERS_FILE, JSON.stringify(orderStore, null, 2)); } catch(e) {}
+  }
+}
+
+async function updateOrderStatus(order_number, new_status) {
+  const idx = orderStore.findIndex(o => o.order_number === order_number);
+  if (idx >= 0) orderStore[idx].status = new_status;
+  if (pgPool) {
+    try {
+      await pgPool.query(`UPDATE orders SET status=$1, updated_at=NOW() WHERE order_number=$2`, [new_status, order_number]);
+    } catch(e) { console.error('[PG] Update status error:', e.message); }
+  }
+}
+
+// Legacy saveOrders for compatibility
+function saveOrders() {
+  if (!pgPool) {
+    try { fs.writeFileSync(ORDERS_FILE, JSON.stringify(orderStore, null, 2)); } catch(e) {}
+  }
+}
+
+// Load orders on startup
+loadOrders();
 
 // ── CHAT LOG (in-memory + Postgres) ──────────────────────────
 const chatLog = [];
@@ -292,22 +388,7 @@ function saveHistory(phone, role, msg) {
   memory.set(phone, h);
 }
 
-// ── LEADS STORE (Supabase) ───────────────────────────────────
-if (pgPool) {
-  pgPool.query(`
-    CREATE TABLE IF NOT EXISTS leads (
-      id SERIAL PRIMARY KEY,
-      timestamp TIMESTAMPTZ DEFAULT NOW(),
-      phone TEXT,
-      name TEXT,
-      interest TEXT,
-      message TEXT,
-      status TEXT DEFAULT 'new',
-      language TEXT DEFAULT 'en'
-    )
-  `).then(() => console.log('[PG] leads table ready'))
-    .catch(e => console.error('[PG] Leads table error:', e.message));
-}
+// ── LEADS (handled in unified table init above) ───────────────
 
 async function saveLead({ phone, name, interest, message, language }) {
   if (!pgPool) return;
@@ -406,22 +487,32 @@ STRICT RULES:
 4. Flag issues with ⚠️.
 5. End with one clear recommended action.`,
 
-  enquiry: `You are MaahisBot 🌸 — the warm, elegant virtual assistant for Maahis Designer Boutique, Chennai.
-You help NEW customers discover our services, pricing, and book appointments.
+  enquiry: `You are BoutiqueBot 🌸 — the warm, elegant virtual assistant managing TWO boutiques.
 
-KNOWLEDGE BASE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BOUTIQUE 1 — MAAHIS Designer Boutique
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${MAAHIS_KB}
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BOUTIQUE 2 — NEETU'S Designer Boutique
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Owner: Neethu | Contact: +91 9944151122
+Services: Custom tailoring for women's wear — blouses, suits, lehengas, gowns, bridal, embroidery
+Pricing: Similar to MAAHIS — blouse ₹800 onwards, lehenga ₹2500 onwards
+Hours: Mon–Sat 10AM–8PM | Sunday by appointment
+Doorstep service available
+
 STRICT RULES:
-1. ONLY answer about Maahis boutique services — never go off-topic.
-2. Detect language: if customer writes in Tamil, reply in Tamil. Otherwise reply in English.
-3. Be warm, friendly, and elegant — like a boutique stylist, not a chatbot.
-4. Use emojis naturally 🌸✨👗.
-5. WhatsApp format — short paragraphs, no walls of text.
-6. If customer asks to book/visit/order → ask for their NAME and what garment they need.
-7. If customer shares name + interest → confirm you'll pass it to the team and alert Sakthi.
+1. If customer mentions "Neetu" or "Neethu" → respond as Neetu's boutique agent.
+2. Otherwise → respond as MAAHIS boutique agent by default.
+3. ONLY answer about boutique services — never go off-topic.
+4. Detect language: Tamil message → Tamil reply. English → English.
+5. Warm, friendly, elegant tone. Emojis natural 🌸✨👗.
+6. WhatsApp format — short, no walls of text.
+7. If customer asks to book/visit/order → ask for NAME and garment needed.
 8. Never invent prices — always say "onwards" or "varies by design".
-9. For location: always share the Google Maps link.
+9. For location: share Google Maps link.
 10. End EVERY first reply with: "Want to book a slot or get a custom quote? Just tell me your name and what you need! 😊"`
 };
 
@@ -616,9 +707,7 @@ app.post('/api/status-update', async (req, res) => {
   const { order_number, phone, new_status, customer_name } = req.body;
   console.log(`[STATUS UPDATE] #${order_number} → ${new_status}`);
 
-  // Update in local orderStore too
-  const local = orderStore.find(o => o.order_number === order_number);
-  if (local) { local.status = new_status; saveOrders(); } // ← persist status change
+  await updateOrderStatus(order_number, new_status);
 
   const trackLink = generateTrackingLink(phone, order_number);
   const whatsapp_message =
@@ -655,23 +744,18 @@ app.post('/api/new-order', async (req, res) => {
 
   console.log(`[NEW ORDER] #${order_number} | ${phone} | ${customer_name}`);
 
-  // Check if order already exists
   const exists = orderStore.find(o => o.order_number === order_number);
   if (!exists) {
-    orderStore.push({
-      order_number,
-      phone,
-      customer_name,
+    await saveOrder({
+      order_number, phone, customer_name,
       order_type: req.body.order_type || item || 'Order',
       amount: parseFloat(req.body.amount || 0),
       advance_paid: parseFloat(req.body.advance_paid || 0),
       notes: req.body.notes || '',
-      status: 'received',
-      source: 'emergent',
-      created_at: new Date().toISOString(),
-      tracking_link: generateTrackingLink(phone, order_number)
+      status: 'received', source: 'emergent',
+      boutique_id: req.body.boutique_id || 'maahis',
+      created_at: new Date().toISOString()
     });
-    saveOrders(); // ← persist to disk immediately
   }
 
   const trackLink = generateTrackingLink(phone, order_number);
@@ -828,6 +912,43 @@ app.patch('/api/leads/:id', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── APPOINTMENTS API ─────────────────────────────────────────
+app.post('/api/appointments', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'DB not connected' });
+  const { phone, name, preferred_date, preferred_time, garment, boutique_id } = req.body;
+  try {
+    const result = await pgPool.query(
+      `INSERT INTO appointments (phone, name, preferred_date, preferred_time, garment, boutique_id)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [phone, name, preferred_date, preferred_time, garment, boutique_id || 'maahis']
+    );
+    const apt = result.rows[0];
+    const boutique = BOUTIQUES[boutique_id] || BOUTIQUES.maahis;
+
+    // Confirm to customer
+    await sendWhatsApp(phone,
+      `✅ *Appointment Booked!*\n\n🌸 ${boutique.name}\n👤 ${name}\n👗 ${garment}\n📅 ${preferred_date} at ${preferred_time}\n\nWe'll confirm shortly. See you! 😊`
+    );
+    // Alert owner
+    await sendWhatsApp(boutique.ownerPhone,
+      `📅 *New Appointment!*\n👤 ${name}\n📱 ${phone}\n👗 ${garment}\n📅 ${preferred_date} at ${preferred_time}`
+    );
+    res.json({ success: true, appointment: apt });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/appointments', async (req, res) => {
+  if (!pgPool) return res.json({ appointments: [] });
+  const boutique = req.query.boutique || null;
+  try {
+    const q = boutique
+      ? `SELECT * FROM appointments WHERE boutique_id=$1 ORDER BY timestamp DESC LIMIT 50`
+      : `SELECT * FROM appointments ORDER BY timestamp DESC LIMIT 50`;
+    const result = await pgPool.query(q, boutique ? [boutique] : []);
+    res.json({ appointments: result.rows, total: result.rows.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── OWNER DAILY REPORT ────────────────────────────────────────
 app.get('/api/chat-logs', async (req, res) => {
   const agent = req.query.agent;
@@ -849,30 +970,114 @@ app.get('/api/chat-logs', async (req, res) => {
 
 app.get('/api/owner-report', async (req, res) => {
   try {
-    // Use merged orders (local store has status updates + advance_paid)
-    const allOrders = orderStore.length > 0 ? orderStore : (await getAllActiveOrders() || []);
+    const boutique_id = req.query.boutique || 'maahis';
+    const allOrders = orderStore.filter(o => (o.boutique_id||'maahis') === boutique_id);
+    const boutique  = BOUTIQUES[boutique_id] || BOUTIQUES.maahis;
     const summary = allOrders.map(o => ({
-      order: o.order_number,
-      customer: o.customer_name,
-      item: o.order_type,
-      amount: o.amount,
+      order: o.order_number, customer: o.customer_name,
+      item: o.order_type, amount: o.amount,
       advance_paid: o.advance_paid || 0,
       balance: (o.amount || 0) - (o.advance_paid || 0),
-      status: o.status,
-      date: o.created_at?.slice(0,10)
+      status: o.status, date: o.created_at?.slice(0,10)
     }));
     const r = await groq.chat.completions.create({
       model: MODEL_MAIN, max_tokens: 600, temperature: 0.4,
       messages: [
         { role: 'system', content: SYSTEM.owner },
-        { role: 'user',   content: `Generate a clear end-of-day business report for Maahis Designer Boutique. Include: total orders, revenue, pending payments, orders by status. Orders data:\n${JSON.stringify(summary)}` }
+        { role: 'user', content: `Generate a clear end-of-day business report for ${boutique.name}. Include: total orders, revenue, pending payments, orders by status. Orders:\n${JSON.stringify(summary)}` }
       ]
     });
     res.json({ report: r.choices[0].message.content.trim() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── DAILY REPORT — WhatsApp to owner ─────────────────────────
+async function sendDailyReport(boutique_id = 'maahis') {
+  const boutique  = BOUTIQUES[boutique_id] || BOUTIQUES.maahis;
+  const orders    = orderStore.filter(o => (o.boutique_id||'maahis') === boutique_id);
+  const leads     = pgPool ? (await pgPool.query(`SELECT * FROM leads WHERE boutique_id=$1 AND timestamp > NOW() - INTERVAL '24 hours'`, [boutique_id])).rows : [];
+
+  const total     = orders.length;
+  const revenue   = orders.reduce((s,o) => s + parseFloat(o.amount||0), 0);
+  const collected = orders.reduce((s,o) => s + parseFloat(o.advance_paid||0), 0);
+  const pending   = orders.filter(o => !['delivered','dispatched'].includes(o.status)).length;
+  const ready     = orders.filter(o => o.status === 'ready').length;
+  const newLeads  = leads.length;
+
+  const report =
+`🌸 *${boutique.name} — Daily Report*
+📅 ${new Date().toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long' })}
+
+📦 *Orders*
+• Total: ${total}
+• In Progress: ${pending}
+• Ready for Pickup: ${ready} 🎉
+
+💰 *Revenue*
+• Total Value: ₹${revenue.toLocaleString('en-IN')}
+• Collected: ₹${collected.toLocaleString('en-IN')}
+• Pending: ₹${(revenue - collected).toLocaleString('en-IN')}
+
+🌟 *New Leads Today: ${newLeads}*
+
+_Reply with any order number to get status_ 😊`;
+
+  await sendWhatsApp(boutique.ownerPhone, report);
+  console.log(`[DAILY REPORT] Sent to ${boutique.ownerPhone}`);
+}
+
+// ── DAILY REPORT TRIGGER (manual or scheduled) ───────────────
+app.get('/api/daily-report/:boutique', async (req, res) => {
+  try {
+    await sendDailyReport(req.params.boutique || 'maahis');
+    res.json({ success: true, message: 'Report sent via WhatsApp' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Auto-send daily report at 9AM IST (3:30 AM UTC)
+const REPORT_HOUR_UTC = 3, REPORT_MIN_UTC = 30;
+setInterval(async () => {
+  const now = new Date();
+  if (now.getUTCHours() === REPORT_HOUR_UTC && now.getUTCMinutes() === REPORT_MIN_UTC) {
+    await sendDailyReport('maahis');
+    await sendDailyReport('neethu');
+  }
+}, 60000); // check every minute
+
 // ── WHATSAPP WEBHOOK VERIFICATION ────────────────────────────
+// ── EMERGENT BOUTIQUE-SPECIFIC WEBHOOKS ──────────────────────
+async function handleEmergentPayload(body, boutique) {
+  if (body.type === 'new_order') {
+    const { order_number, customer_phone, customer_name, item, delivery_date, amount, advance_paid } = body;
+    const phone = customer_phone;
+    console.log(`\n[${boutique.id.toUpperCase()} NEW ORDER] #${order_number} | ${phone}`);
+    const exists = orderStore.find(o => o.order_number === order_number);
+    if (!exists) {
+      await saveOrder({ order_number, customer_name, phone, order_type: item, delivery_date, amount, advance_paid, status: 'received', boutique_id: boutique.id, created_at: new Date().toISOString(), source: 'emergent' });
+    }
+    const trackLink = generateTrackingLink(phone, order_number);
+    await sendWhatsApp(phone, `Hi ${customer_name||'there'}! 👋\n\nThank you for choosing *${boutique.name}* 🌸\n\n📦 Order #${order_number}\n👗 ${item}\n📅 Expected: ${delivery_date}\n💰 ₹${amount||''}\n\n🔗 Track: ${trackLink}\n\nQuestions? Just reply here 😊`);
+    await sendWhatsApp(boutique.ownerPhone, `🌸 *New Order — ${boutique.name}!*\n👤 ${customer_name}\n📱 ${phone}\n👗 ${item}\n💰 ₹${amount} (Adv: ₹${advance_paid})\n📅 ${delivery_date}`);
+  }
+  if (body.type === 'status_update') {
+    const { order_number, phone, new_status, customer_name } = body;
+    console.log(`\n[${boutique.id.toUpperCase()} STATUS] #${order_number} → ${new_status}`);
+    await updateOrderStatus(order_number, new_status);
+    const trackLink = generateTrackingLink(phone, order_number);
+    if (phone) await sendWhatsApp(phone, `Hi ${customer_name||'there'}! 👋\n\n*${boutique.name}* update 🌸\n📦 Order #${order_number}\n${getStatusEmoji(new_status)}\n🔗 Track: ${trackLink}\n\nQuestions? Just reply here 😊`);
+  }
+}
+
+app.post('/webhook/maahis', async (req, res) => {
+  res.sendStatus(200);
+  try { await handleEmergentPayload(req.body, BOUTIQUES.maahis); } catch(e) { console.error('[MAAHIS WEBHOOK]', e.message); }
+});
+
+app.post('/webhook/neethu', async (req, res) => {
+  res.sendStatus(200);
+  try { await handleEmergentPayload(req.body, BOUTIQUES.neethu); } catch(e) { console.error('[NEETHU WEBHOOK]', e.message); }
+});
+
 app.get('/webhook', (req, res) => {
   const mode      = req.query['hub.mode'];
   const token     = req.query['hub.verify_token'];
@@ -900,8 +1105,7 @@ app.post('/webhook', async (req, res) => {
 
       const exists = orderStore.find(o => o.order_number === order_number);
       if (!exists) {
-        orderStore.unshift({ order_number, customer_name, phone, order_type: item, delivery_date, amount, advance_paid, status: 'received', boutique_id: boutique.id, created_at: new Date().toISOString(), source: 'emergent' });
-        saveOrders();
+        await saveOrder({ order_number, customer_name, phone, order_type: item, delivery_date, amount, advance_paid, status: 'received', boutique_id: boutique.id, created_at: new Date().toISOString(), source: 'emergent' });
       }
 
       const trackLink = generateTrackingLink(phone, order_number);
@@ -919,8 +1123,7 @@ app.post('/webhook', async (req, res) => {
       const { order_number, phone, new_status, customer_name } = body;
       console.log(`\n[EMERGENT STATUS] #${order_number} → ${new_status} | ${boutique.name}`);
 
-      const local = orderStore.find(o => o.order_number === order_number);
-      if (local) { local.status = new_status; saveOrders(); }
+      await updateOrderStatus(order_number, new_status);
 
       const trackLink = generateTrackingLink(phone, order_number);
       const msg = `Hi ${customer_name || 'there'}! 👋\n\n*${boutique.name}* update 🌸\n📦 Order #${order_number}\n${getStatusEmoji(new_status)}\n🔗 Track: ${trackLink}\n\nQuestions? Just reply here 😊`;
@@ -930,19 +1133,24 @@ app.post('/webhook', async (req, res) => {
 
     // ── WHATSAPP: incoming customer message ──────────────────
     if (body.object !== 'whatsapp_business_account') return;
-    const messages = body.entry?.[0]?.changes?.[0]?.value?.messages;
+    const waValue   = body.entry?.[0]?.changes?.[0]?.value;
+    const messages  = waValue?.messages;
     if (!messages?.length) return;
 
-    const msg  = messages[0];
-    const from = msg.from;
-    const text = msg.type === 'text' ? msg.text?.body?.trim() : null;
+    const msg       = messages[0];
+    const from      = msg.from;
+    const text      = msg.type === 'text' ? msg.text?.body?.trim() : null;
     if (!text) return;
 
-    console.log(`\n[WA IN] From: ${from} | "${text.slice(0, 80)}"`);
+    // Detect boutique by which WA number received the message
+    const incomingPhoneId = waValue?.metadata?.phone_number_id;
+    const msgBoutique     = detectBoutiqueByPhoneId(incomingPhoneId);
 
-    // detect owner
+    console.log(`\n[WA IN] ${msgBoutique.name} | From: ${from} | "${text.slice(0, 80)}"`);
+
+    // detect if owner is messaging (8608080103 = MAAHIS, 9944151122 = NEETHU)
+    const isOwner = from.includes('8608080103') || from.includes('9944151122');
     const ownerBoutique = Object.values(BOUTIQUES).find(b => from.includes(b.ownerPhone.slice(-10)));
-    const isOwner = !!ownerBoutique;
 
     const route = await routeMessage(text, isOwner);
     console.log(`[→] agent:${route.agent} intent:${route.intent}`);
@@ -962,20 +1170,34 @@ app.post('/webhook', async (req, res) => {
       const reply = r.choices[0].message.content.trim();
       saveHistory(from, 'user', text);
       saveHistory(from, 'assistant', reply);
-      await sendWhatsApp(from, reply);
+      await sendWhatsApp(from, reply, msgBoutique);
 
       const lowerMsg = text.toLowerCase();
       const interestKeywords = ['blouse','suit','lehenga','gown','bridal','embroidery','aari','maggam','partywe','fitting','appointment','book','order','stitch'];
       const detectedInterest = interestKeywords.find(k => lowerMsg.includes(k));
       const nameMatch = text.match(/(?:my name is|i am|i'm|iam)\s+([A-Za-z]+)/i);
       const detectedName = nameMatch ? nameMatch[1] : null;
-      if (detectedInterest || detectedName) {
-        await saveLead({ phone: from, name: detectedName, interest: detectedInterest || 'general enquiry', message: text.slice(0,300), language:'en' });
-        if (detectedName && detectedInterest) {
-          await sendWhatsApp('918608080103', `🌸 *New Lead!*\n👤 ${detectedName}\n📱 ${from}\n👗 ${detectedInterest}\n💬 "${text.slice(0,100)}"`);
+
+      // Appointment detection
+      const wantsAppointment = lowerMsg.includes('visit') || lowerMsg.includes('appointment') || lowerMsg.includes('come') || lowerMsg.includes('book slot');
+      const dateMatch = text.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]?\d{0,4}|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)\b)/i);
+      if (wantsAppointment && detectedName && dateMatch) {
+        if (pgPool) {
+          await pgPool.query(
+            `INSERT INTO appointments (phone, name, preferred_date, garment, boutique_id) VALUES ($1,$2,$3,$4,$5)`,
+            [from, detectedName, dateMatch[0], detectedInterest||'consultation', msgBoutique.id]
+          );
+          await sendWhatsApp(msgBoutique.ownerPhone, `📅 *New Appointment — ${msgBoutique.name}!*\n👤 ${detectedName}\n📱 ${from}\n📅 ${dateMatch[0]}\n👗 ${detectedInterest||'consultation'}`, msgBoutique);
         }
       }
-      addChatLog({ phone: from, customer_msg: text, ai_reply: reply, agent: 'enquiry', intent: 'ENQUIRY' });
+
+      if (detectedInterest || detectedName) {
+        await saveLead({ phone: from, name: detectedName, interest: detectedInterest||'general enquiry', message: text.slice(0,300), language:'en', boutique_id: msgBoutique.id });
+        if (detectedName && detectedInterest) {
+          await sendWhatsApp(msgBoutique.ownerPhone, `🌸 *New Lead — ${msgBoutique.name}!*\n👤 ${detectedName}\n📱 ${from}\n👗 ${detectedInterest}\n💬 "${text.slice(0,100)}"`, msgBoutique);
+        }
+      }
+      addChatLog({ phone: from, customer_msg: text, ai_reply: reply, agent: 'enquiry', intent: 'ENQUIRY', boutique_id: msgBoutique.id });
       return;
     }
 
@@ -983,8 +1205,8 @@ app.post('/webhook', async (req, res) => {
     const reply    = await getReply(route.agent, from, text, route, liveData);
     saveHistory(from, 'user', text);
     saveHistory(from, 'assistant', reply);
-    await sendWhatsApp(from, reply);
-    addChatLog({ phone: from, customer_msg: text, ai_reply: reply, agent: route.agent, intent: route.intent });
+    await sendWhatsApp(from, reply, msgBoutique);
+    addChatLog({ phone: from, customer_msg: text, ai_reply: reply, agent: route.agent, intent: route.intent, boutique_id: msgBoutique.id });
     console.log(`[WA OUT] → ${from} | "${reply.slice(0, 80)}"`);
 
   } catch (err) {
