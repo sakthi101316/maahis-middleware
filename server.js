@@ -44,7 +44,7 @@ const BOUTIQUES = {
   },
   neethu: {
     id:          'neethu',
-    name:        "Neetha Prakash Designer Boutique",
+    name:        "Neetu's Designer Boutique",
     ownerPhone:  '919944151122',
     ownerName:   'Neetha Prakash',
     pin:         '994415',
@@ -279,6 +279,15 @@ if (process.env.DATABASE_URL) {
       garment TEXT,
       boutique_id TEXT DEFAULT 'maahis',
       status TEXT DEFAULT 'pending'
+    );
+    CREATE TABLE IF NOT EXISTS customers (
+      id SERIAL PRIMARY KEY,
+      phone TEXT UNIQUE NOT NULL,
+      name TEXT,
+      pin TEXT NOT NULL,
+      boutique_id TEXT DEFAULT 'maahis',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      last_login TIMESTAMPTZ
     );
   `).then(() => console.log('[PG] All tables ready'))
     .catch(e => console.error('[PG] Table init error:', e.message));
@@ -1214,6 +1223,115 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// ── CUSTOMER AUTH (Threadoria App) ───────────────────────────
+
+// POST /api/customer/register
+app.post('/api/customer/register', async (req, res) => {
+  const { phone, name, pin, boutique_id } = req.body;
+  if (!phone || !pin) return res.status(400).json({ error: 'phone and pin required' });
+  if (pin.length !== 6 || !/^\d{6}$/.test(pin))
+    return res.status(400).json({ error: 'PIN must be 6 digits' });
+  if (!pgPool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const existing = await pgPool.query(`SELECT id FROM customers WHERE phone=$1`, [phone]);
+    if (existing.rows.length > 0)
+      return res.status(409).json({ error: 'Phone already registered. Please login.' });
+    await pgPool.query(
+      `INSERT INTO customers (phone, name, pin, boutique_id) VALUES ($1,$2,$3,$4)`,
+      [phone, name || '', pin, boutique_id || 'maahis']
+    );
+    console.log(`[CUSTOMER] Registered: ${phone}`);
+    res.json({ success: true, message: 'Account created! Please login.' });
+  } catch(e) {
+    console.error('[CUSTOMER] Register error:', e.message);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// POST /api/customer/login
+app.post('/api/customer/login', async (req, res) => {
+  const { phone, pin } = req.body;
+  if (!phone || !pin) return res.status(400).json({ error: 'phone and pin required' });
+  if (!pgPool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const result = await pgPool.query(`SELECT * FROM customers WHERE phone=$1`, [phone]);
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: 'Phone not registered. Create an account first.' });
+    const customer = result.rows[0];
+    if (customer.pin !== pin)
+      return res.status(401).json({ error: 'Incorrect PIN. Please try again.' });
+    await pgPool.query(`UPDATE customers SET last_login=NOW() WHERE phone=$1`, [phone]);
+    // Fetch their orders
+    const orders = await pgPool.query(
+      `SELECT * FROM orders WHERE phone=$1 ORDER BY created_at DESC`,
+      [phone]
+    );
+    res.json({
+      success: true,
+      customer: { phone: customer.phone, name: customer.name, boutique_id: customer.boutique_id },
+      orders: orders.rows
+    });
+  } catch(e) {
+    console.error('[CUSTOMER] Login error:', e.message);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// GET /api/customer/orders/:phone
+app.get('/api/customer/orders/:phone', async (req, res) => {
+  const { phone } = req.params;
+  if (!pgPool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const result = await pgPool.query(
+      `SELECT * FROM orders WHERE phone=$1 ORDER BY created_at DESC`,
+      [phone]
+    );
+    const orders = result.rows.map(o => ({
+      ...o,
+      tracking_link: `${PUBLIC_URL}/track/${phone}/${o.order_number || o.id}`,
+      status_display: getStatusEmoji(o.status)
+    }));
+    res.json({ orders, total: orders.length });
+  } catch(e) {
+    console.error('[CUSTOMER] Orders fetch error:', e.message);
+    res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+// GET /api/customer/profile/:phone
+app.get('/api/customer/profile/:phone', async (req, res) => {
+  const { phone } = req.params;
+  if (!pgPool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const result = await pgPool.query(`SELECT id, phone, name, boutique_id, created_at, last_login FROM customers WHERE phone=$1`, [phone]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+    res.json({ customer: result.rows[0] });
+  } catch(e) {
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// PATCH /api/customer/profile/:phone  (update name or PIN)
+app.patch('/api/customer/profile/:phone', async (req, res) => {
+  const { phone } = req.params;
+  const { name, new_pin, current_pin } = req.body;
+  if (!pgPool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const result = await pgPool.query(`SELECT * FROM customers WHERE phone=$1`, [phone]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+    const customer = result.rows[0];
+    if (new_pin) {
+      if (customer.pin !== current_pin) return res.status(401).json({ error: 'Current PIN incorrect' });
+      if (!/^\d{6}$/.test(new_pin)) return res.status(400).json({ error: 'New PIN must be 6 digits' });
+      await pgPool.query(`UPDATE customers SET pin=$1 WHERE phone=$2`, [new_pin, phone]);
+    }
+    if (name) await pgPool.query(`UPDATE customers SET name=$1 WHERE phone=$2`, [name, phone]);
+    res.json({ success: true, message: 'Profile updated' });
+  } catch(e) {
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
+
 // ── DASHBOARD ─────────────────────────────────────────────────
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'boutique_dashboard_v3.html'));
@@ -1221,21 +1339,26 @@ app.get('/dashboard', (req, res) => {
 
 // ── HEALTH ───────────────────────────────────────────────────
 app.get('/health', (_, res) => res.json({
-  status: 'ok', boutique: 'Maahis Designer Boutique', version: '4.0',
+  status: 'ok', boutique: 'Maahis + Neetu Designer Boutiques', version: '4.1',
   whatsapp_configured: !!WA_TOKEN,
-  features: ['live-emergent-data','merged-orders','dashboard','status-buttons','tracking-links','whatsapp-auto-send','proactive-alerts']
+  features: ['live-emergent-data','merged-orders','dashboard','status-buttons','tracking-links','whatsapp-auto-send','proactive-alerts','enquiry-agent','leads','appointments','customer-auth-threadoria']
 }));
 
 // ── START ────────────────────────────────────────────────────
 app.listen(PORT, () => console.log(`
 ╔═══════════════════════════════════════════════════╗
-║   🛍️  Maahis AI Agent Server v4.0 — LIVE          ║
-║   Dashboard : GET  /dashboard                     ║
-║   All Orders: GET  /api/all-orders                ║
-║   Chat      : POST /api/chat                      ║
-║   NewOrder  : POST /api/new-order                 ║
-║   Track     : GET  /track/:phone/:order           ║
-║   Status    : POST /api/status-update             ║
-║   Followup  : GET  /api/followup-check            ║
-║   Report    : GET  /api/owner-report              ║
+║   🛍️  Maahis + Neetu AI Server v4.1 — LIVE        ║
+║   Dashboard   : GET  /dashboard                   ║
+║   All Orders  : GET  /api/all-orders              ║
+║   Chat        : POST /api/chat                    ║
+║   NewOrder    : POST /api/new-order               ║
+║   Track       : GET  /track/:phone/:order         ║
+║   Status      : POST /api/status-update           ║
+║   Leads       : GET  /api/leads                   ║
+║   Appointments: GET  /api/appointments            ║
+║   ── Threadoria App ──────────────────────────    ║
+║   Register    : POST /api/customer/register       ║
+║   Login       : POST /api/customer/login          ║
+║   Orders      : GET  /api/customer/orders/:phone  ║
+║   Profile     : GET  /api/customer/profile/:phone ║
 ╚═══════════════════════════════════════════════════╝`));
